@@ -1,0 +1,207 @@
+#include <Arduino.h>
+#include "Wire.h"
+#include <ESP32SPISlave.h>
+#include <LiquidCrystal.h>
+
+#define LED1 17
+#define LED2 16
+#define LED3 33
+#define I2C_DEV_ADDR 0x32
+#define QUEUE_SIZE 1
+#define LCD_RS 13
+#define LCD_E  14
+#define LCD_D4 25
+#define LCD_D5 26
+#define LCD_D6 27
+#define LCD_D7 32
+
+#define POT_PIN 34
+
+// put function declarations here:
+void onRecive(int len);
+void onRequest();
+
+uint8_t sensor;
+uint8_t data;
+uint8_t rxData[3];
+uint8_t txData[3] = {0, 0, 0};
+uint16_t tiempo;
+uint8_t led;
+ESP32SPISlave slave;
+uint8_t i = 0;
+uint8_t cmd = 0;
+bool ledState = false;
+
+LiquidCrystal lcd(
+    LCD_RS,
+    LCD_E,
+    LCD_D4,
+    LCD_D5,
+    LCD_D6,
+    LCD_D7
+);
+
+volatile uint8_t adcValor = 0;
+float voltaje = 0.0;
+
+char ultimoLED = '-';
+
+void setup()
+{
+  Serial.begin(115200);
+
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  digitalWrite(LED1, LOW);
+  digitalWrite(LED2, LOW);
+  digitalWrite(LED3, LOW);
+
+  slave.setDataMode(SPI_MODE0);
+  slave.setQueueSize(QUEUE_SIZE);
+
+  slave.begin(VSPI);
+
+  Serial.print("MOSI PIN: ");
+  Serial.println(MOSI);
+  Serial.print("MISO PIN: ");
+  Serial.println(MISO);
+  Serial.print("SCK PIN: ");
+  Serial.println(SCK);
+  Serial.print("SS PIN: ");
+  Serial.println(SS);
+
+  Serial.print("Esclavo esta listo");
+  Wire.setPins(21, 22);
+
+  //Wire.onReceive(onRecive);
+  Wire.onRequest(onRequest);
+
+  Wire.begin((uint8_t)I2C_DEV_ADDR);
+  Serial.println("Esclavo I2C esta listo");
+
+  lcd.begin(16, 2);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Hola Nucleo!");
+
+  lcd.setCursor(0, 1);
+  lcd.print("ESP32 + LCD");
+
+  analogReadResolution(8);
+  analogSetPinAttenuation(POT_PIN, ADC_11db);
+
+  lcd.begin(16, 2);
+  lcd.clear();
+
+  Serial.println("LCD y ADC listos");
+}
+
+void loop()
+{
+
+  adcValor = analogRead(POT_PIN);
+
+    // Conversion aproximada para la escala de 0 a 3.3 V
+    voltaje = adcValor * (3.3f / 255.0f);
+
+    lcd.setCursor(0, 0);
+    lcd.print("Pot1: ADC: LED:");
+    
+    
+
+    lcd.setCursor(0, 1);
+    lcd.print(voltaje, 2);
+    lcd.print("V ");
+    lcd.print(adcValor);
+    lcd.print("  ");
+    lcd.setCursor(12, 1);
+    lcd.print(ultimoLED);
+    
+
+    delay(200);
+
+  //sensor = random(0, 256);
+  delay(100);
+  // put your main code here, to run repeatedly:
+  if (slave.hasTransactionsCompletedAndAllResultsHandled())
+  {
+    // sensor = random(0, 256);
+
+    slave.queue(txData, rxData, 3);
+
+    // Serial.print("Dato preparado esta enviar: ");
+    // Serial.println(sensor);
+
+    slave.trigger();
+  }
+
+  if (slave.hasTransactionsCompletedAndAllResultsReady(QUEUE_SIZE))
+  {
+    slave.numBytesReceivedAll();
+
+    led = rxData[0];
+
+    tiempo = ((uint16_t)rxData[1] << 8) | rxData[2];
+
+    Serial.print("LED recibido: ");
+    Serial.println(led);
+
+    Serial.print("Tiempo recibido: ");
+    Serial.println(tiempo);
+
+    tiempo = ((uint16_t)rxData[1] << 8) | rxData[2];
+
+    int pinLED;
+
+    switch (led)
+    {
+        case 1:
+            pinLED = LED1;
+            ultimoLED = '1';
+            break;
+
+        case 2:
+            pinLED = LED2;
+            ultimoLED = '2';
+            break;
+
+        case 3:
+            pinLED = LED3;
+            ultimoLED = '3';
+            break;
+
+        default:
+            pinLED = -1;
+            Serial.println("LED no valido");
+            break;
+    }
+
+    if (pinLED != -1)
+    {
+        digitalWrite(pinLED, HIGH);
+
+        delay(tiempo);
+
+        digitalWrite(pinLED, LOW);
+
+        Serial.print("Tiempo de encendido: ");
+        Serial.println(tiempo);
+    }
+  }
+}
+
+// put function definitions here:
+void onRequest()
+{
+    Wire.write(adcValor);
+}
+
+void onRecive(int len){
+  Serial.printf("onRecive[%d]: ", len);
+  while (Wire.available()){
+    cmd = Wire.read();
+    Serial.write(cmd);
+  }
+
+}
